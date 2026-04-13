@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>PowerApps YAML → JSON 変換</title>
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .row { display: flex; gap: 20px; margin-top: 16px; }
+  textarea { width: 100%; height: 400px; font-family: monospace; font-size: 13px; padding: 8px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+
+<h1>PowerApps YAML → JSON 変換</h1>
+<button onclick="convert()">変換する</button>
+<span id="message"></span>
+
+<div class="row">
+  <div style="flex:1"><p>YAML</p><textarea id="yamlInput" placeholder="YAMLをここに貼り付け"></textarea></div>
+  <div style="flex:1"><p>JSON（コピー用）</p><textarea id="jsonOutput" readonly></textarea></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<script>
+function convert() {
+  const result = [];
+  extractControls(jsyaml.load(document.getElementById("yamlInput").value), result, "");
+  document.getElementById("jsonOutput").value = JSON.stringify(result, null, 2);
+  document.getElementById("message").textContent = result.length + " 件";
+}
+
+function extractControls(obj, result, parentPath) {
+  if (!obj || typeof obj !== "object") return;
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) extractControls(item, result, parentPath);
+    return;
+  }
+
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+
+    if (key === "Children" || key === "children") {
+      extractControls(value, result, parentPath);
+      continue;
+    }
+
+    if (value && typeof value === "object" && !Array.isArray(value) && (value.Control || value.Properties)) {
+      const name = key.replace(/^['"]|['"]$/g, "");
+      const path = parentPath ? parentPath + " > " + name : name;
+      const row = {
+        ControlName: name,
+        ControlPath: path,
+        ControlType: value.Control || "",
+        Variant: value.Variant || "",
+      };
+      for (const [pk, pv] of Object.entries(value.Properties || {})) {
+        row["Prop_" + pk] = typeof pv === "object" ? JSON.stringify(pv) : String(pv ?? "");
+      }
+      result.push(row);
+      if (value.Children) extractControls(value.Children, result, path);
+    } else {
+      extractControls(value, result, parentPath);
+    }
+  }
+}
+</script>
+
+</body>
+</html>
