@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>PowerApps YAML 検索</title>
+<style>
+  body { font-family: sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+  textarea { width: 100%; height: 300px; font-family: monospace; font-size: 13px; padding: 8px; box-sizing: border-box; }
+  input { padding: 6px; font-size: 14px; width: 300px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  th { background: #f0f0f0; }
+  tr:hover { background: #fafafa; }
+  .section { margin-top: 24px; }
+  mark { background: yellow; }
+</style>
+</head>
+<body>
+
+<h1>PowerApps YAML 検索</h1>
+
+<textarea id="yamlInput" placeholder="YAMLをここに貼り付け"></textarea>
+<br><br>
+<button onclick="loadYaml()">読み込む</button>
+<span id="loadMsg"></span>
+
+<div class="section">
+  コントロール名で検索：
+  <input type="text" id="searchInput" placeholder="例: Button1" oninput="search()">
+</div>
+
+<!-- 検索したコントロールのプロパティ一覧 -->
+<div class="section" id="propsSection" style="display:none">
+  <h3 id="propsTitle"></h3>
+  <table id="propsTable">
+    <thead><tr><th>プロパティ</th><th>値</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<!-- そのコントロール名が値に含まれているコントロール一覧 -->
+<div class="section" id="refsSection" style="display:none">
+  <h3 id="refsTitle"></h3>
+  <table id="refsTable">
+    <thead><tr><th>コントロール名</th><th>プロパティ</th><th>値</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<script>
+let controls = []; // 全コントロールのフラットリスト
+
+function loadYaml() {
+  controls = [];
+  extractControls(jsyaml.load(document.getElementById("yamlInput").value), controls, "");
+  document.getElementById("loadMsg").textContent = controls.length + " 件読み込みました";
+}
+
+function extractControls(obj, result, parentPath) {
+  if (!obj || typeof obj !== "object") return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) extractControls(item, result, parentPath);
+    return;
+  }
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (key === "Children" || key === "children") {
+      extractControls(value, result, parentPath);
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value) && (value.Control || value.Properties)) {
+      const name = key.replace(/^['"]|['"]$/g, "");
+      const path = parentPath ? parentPath + " > " + name : name;
+      const row = { ControlName: name, ControlPath: path, ControlType: value.Control || "", Variant: value.Variant || "" };
+      for (const [pk, pv] of Object.entries(value.Properties || {})) {
+        row["Prop_" + pk] = typeof pv === "object" ? JSON.stringify(pv) : String(pv ?? "");
+      }
+      result.push(row);
+      if (value.Children) extractControls(value.Children, result, path);
+    } else {
+      extractControls(value, result, parentPath);
+    }
+  }
+}
+
+function search() {
+  const keyword = document.getElementById("searchInput").value.trim();
+  if (!keyword || controls.length === 0) return;
+
+  // 1. 検索したコントロール自身のプロパティ一覧
+  const target = controls.find(c => c.ControlName === keyword);
+  const propsSection = document.getElementById("propsSection");
+  if (target) {
+    document.getElementById("propsTitle").textContent = `「${keyword}」のプロパティ`;
+    const tbody = document.querySelector("#propsTable tbody");
+    tbody.innerHTML = Object.entries(target)
+      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+      .join("");
+    propsSection.style.display = "";
+  } else {
+    propsSection.style.display = "none";
+  }
+
+  // 2. 値の中にキーワードが含まれているコントロール一覧
+  const refs = [];
+  for (const ctrl of controls) {
+    for (const [k, v] of Object.entries(ctrl)) {
+      if (k === "ControlName" || k === "ControlPath") continue;
+      if (String(v).includes(keyword)) {
+        refs.push({ ControlName: ctrl.ControlName, Property: k, Value: String(v) });
+      }
+    }
+  }
+
+  const refsSection = document.getElementById("refsSection");
+  document.getElementById("refsTitle").textContent = `「${keyword}」が値に含まれるコントロール（${refs.length} 件）`;
+  const tbody2 = document.querySelector("#refsTable tbody");
+  tbody2.innerHTML = refs.map(r =>
+    `<tr><td>${r.ControlName}</td><td>${r.Property}</td><td>${r.Value.replace(keyword, `<mark>${keyword}</mark>`)}</td></tr>`
+  ).join("");
+  refsSection.style.display = "";
+}
+</script>
+
+</body>
+</html>
