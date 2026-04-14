@@ -2,19 +2,21 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>PowerApps YAML 検索</title>
+<title>YAML 検索</title>
 <style>
-  body { font-family: sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+  body { font-family: sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
   textarea { width: 100%; height: 300px; font-family: monospace; font-size: 13px; padding: 8px; box-sizing: border-box; }
-  input[type="text"] { padding: 6px; font-size: 14px; }
+  input[type="text"] { padding: 6px; font-size: 13px; }
   table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
   th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
   th { background: #f0f0f0; }
   .section { margin-top: 24px; }
   mark { background: yellow; }
+  .replace-header { display: flex; gap: 8px; margin-bottom: 4px; font-size: 12px; color: #666; padding-left: 2px; }
   .replace-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
-  .replace-row input { width: 200px; }
+  .replace-row input { width: 140px; }
   .replace-row.disabled input { background: #eee; color: #aaa; }
+  .label { font-size: 12px; color: #888; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -28,8 +30,18 @@
 
 <div class="section">
   <h3>置き換え設定</h3>
+  <!-- ヘッダー -->
+  <div class="replace-header">
+    <span style="width:140px">条件：プロパティ名</span>
+    <span style="width:140px">条件：値</span>
+    <span style="width:20px"></span>
+    <span style="width:140px">変換前（値の一部）</span>
+    <span style="width:20px"></span>
+    <span style="width:140px">変換後</span>
+  </div>
   <div id="replaceRows"></div>
   <button onclick="addReplaceRow()">＋ 追加</button>
+  <span class="label">※ 条件は省略可（空欄=すべてに適用）</span>
 </div>
 
 <div class="section">
@@ -62,9 +74,12 @@ function addReplaceRow() {
   div.className = "replace-row";
   div.dataset.enabled = "true";
   div.innerHTML = `
-    <input type="text" placeholder="変換前（例: Gallery@2.15.0）">
+    <input type="text" class="cond-prop" placeholder="例: Prop_Visible">
+    <input type="text" class="cond-val" placeholder="例: false">
     <span>→</span>
-    <input type="text" placeholder="変換後（例: ギャラリー）">
+    <input type="text" class="from-val" placeholder="例: false">
+    <span>→</span>
+    <input type="text" class="to-val" placeholder="例: △">
     <button onclick="toggleRow(this)">無効</button>
     <button onclick="this.parentElement.remove()">削除</button>
   `;
@@ -80,15 +95,27 @@ function toggleRow(btn) {
 }
 
 function getReplaceRules() {
-  return [...document.querySelectorAll(".replace-row")].filter(r => r.dataset.enabled === "true").map(row => {
-    const inputs = row.querySelectorAll("input");
-    return { from: inputs[0].value, to: inputs[1].value };
-  }).filter(r => r.from);
+  return [...document.querySelectorAll(".replace-row")]
+    .filter(r => r.dataset.enabled === "true")
+    .map(row => ({
+      condProp: row.querySelector(".cond-prop").value.trim(),
+      condVal:  row.querySelector(".cond-val").value.trim(),
+      from:     row.querySelector(".from-val").value.trim(),
+      to:       row.querySelector(".to-val").value.trim(),
+    }))
+    .filter(r => r.from);
 }
 
-function applyReplace(val) {
+// propKey: "Prop_Visible" のようなキー、val: その値
+function applyReplace(val, propKey) {
   let result = String(val);
-  for (const rule of getReplaceRules()) result = result.replaceAll(rule.from, rule.to);
+  for (const rule of getReplaceRules()) {
+    // プロパティ条件が指定されていれば一致確認
+    if (rule.condProp && rule.condProp !== propKey) continue;
+    // 値条件が指定されていれば一致確認
+    if (rule.condVal && !String(val).includes(rule.condVal)) continue;
+    result = result.replaceAll(rule.from, rule.to);
+  }
   return result;
 }
 
@@ -128,7 +155,7 @@ function search() {
   if (target) {
     document.getElementById("propsTitle").textContent = `「${keyword}」のプロパティ`;
     document.querySelector("#propsTable tbody").innerHTML = Object.entries(target).map(([k, v]) => {
-      const replaced = applyReplace(v);
+      const replaced = applyReplace(v, k);
       return `<tr><td>${k}</td><td>${v}</td><td>${replaced !== String(v) ? `<mark>${replaced}</mark>` : ""}</td></tr>`;
     }).join("");
     propsSection.style.display = "";
@@ -146,7 +173,7 @@ function search() {
 
   document.getElementById("refsTitle").textContent = `「${keyword}」が値に含まれるコントロール（${refs.length} 件）`;
   document.querySelector("#refsTable tbody").innerHTML = refs.map(r => {
-    const replaced = applyReplace(r.Value);
+    const replaced = applyReplace(r.Value, r.Property);
     return `<tr><td>${r.ControlName}</td><td>${r.Property}</td><td>${r.Value.replace(keyword, `<mark>${keyword}</mark>`)}</td><td>${replaced !== r.Value ? `<mark>${replaced}</mark>` : ""}</td></tr>`;
   }).join("");
   document.getElementById("refsSection").style.display = "";
